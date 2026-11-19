@@ -1,0 +1,4 @@
+interface:
+  display_name: "StyleForge"
+  short_description: "学习个人图文风格，记录真实解题过程，采集证据并生成可复现技术 WriteUp"
+  default_prompt: "使用 $styleforge，按我的 Style Profile 记录或复现解题过程，采集真实证据并生成带图 WriteUp。"
