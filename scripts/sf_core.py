@@ -10,10 +10,11 @@ import json
 import os
 import re
 import shutil
+import tempfile
 import uuid
 from pathlib import Path
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 SCHEMA = 1
 
 
@@ -107,12 +108,42 @@ def lock(folder):
         path.unlink(missing_ok=True)
 
 
+def default_store_path():
+    configured = os.environ.get("STYLEFORGE_DATA_HOME")
+    if configured:
+        return Path(configured).expanduser()
+    if os.name == "nt":
+        return Path("D:/AI/codex/StyleForgeData")
+    return Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "StyleForge"
+
+
+def default_browser_path():
+    configured = os.environ.get("STYLEFORGE_BROWSERS_HOME")
+    if configured:
+        return Path(configured).expanduser()
+    if os.name == "nt":
+        return Path("D:/AI/codex/StyleForgeData/playwright-browsers")
+    return Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH", str(Path.home() / ".cache/ms-playwright")))
+
+
 class Context:
     def __init__(self, store=None, user=None, test_store=False):
-        default = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local/share"))) / "StyleForge"
-        self.root = Path(store or default).expanduser().resolve()
+        selected = Path(store).expanduser() if store else default_store_path()
+        self.root = selected.expanduser().resolve()
+        if os.name == "nt" and self.root.drive.casefold() != "d:":
+            raise ValueError("StyleForge data must be stored on D:; use --store or STYLEFORGE_DATA_HOME with a D: path")
+        browser_root = default_browser_path().resolve()
+        if os.name == "nt" and browser_root.drive.casefold() != "d:":
+            raise ValueError("Playwright browsers must be stored on D:; use STYLEFORGE_BROWSERS_HOME with a D: path")
         self.user = identifier(user or getpass.getuser())
         self.root.mkdir(parents=True, exist_ok=True)
+        runtime_tmp = self.root / "runtime" / "tmp"
+        runtime_tmp.mkdir(parents=True, exist_ok=True)
+        os.environ["TEMP"] = str(runtime_tmp)
+        os.environ["TMP"] = str(runtime_tmp)
+        os.environ["TMPDIR"] = str(runtime_tmp)
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(browser_root)
+        tempfile.tempdir = str(runtime_tmp)
         marker = self.root / "store.json"
         if not marker.exists():
             write_json(marker, {"schema_version": SCHEMA, "created_at": now(), "test_fixture": bool(test_store)})

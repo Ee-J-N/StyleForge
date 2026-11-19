@@ -21,7 +21,7 @@ The style dimension (`learn` or `write`) does not set the recording dimension (`
 
 ## Use The CLI
 
-Run commands from the skill directory; `python` may be replaced with the installed Python launcher. The default data store is `%LOCALAPPDATA%\StyleForge`, separated by local user. Do not use `--test-store` for personal cases.
+Run commands from the D-drive skill directory; `python` may be replaced with its D-drive virtual environment. On Windows, the default data store is `D:\AI\codex\StyleForgeData`, separated by local user. Override with `STYLEFORGE_DATA_HOME` or `--store` only when the alternate path is also on D:. Do not use `--test-store` for personal cases.
 
 1. Before any target interaction, make sure the user's request identifies the CTF/lab and its authorized scope. Do not expand that scope or access unrelated systems. Reading local WP samples, running syntax checks, and testing on a local synthetic fixture do not authorize a network operation.
 2. For Learn Mode, import only the selected author's files with `profile-learn`. Keep general references separate with `general-import`.

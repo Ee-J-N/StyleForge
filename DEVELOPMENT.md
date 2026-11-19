@@ -16,7 +16,7 @@ scripts/import_siyuan.py     Read-only export of explicitly selected SiYuan cont
 tests/test_audit_regressions.py
 ```
 
-The local data store is separate from this source tree and defaults to `%LOCALAPPDATA%\StyleForge`. Test stores are explicitly marked and isolated. Do not put downloaded challenge content, flags or live case data in test fixtures.
+The local data store is separate from this source tree and defaults to `D:\AI\codex\StyleForgeData` on Windows. Test stores and temporary files stay in the D-drive checkout and are explicitly marked and isolated. Do not put downloaded challenge content, flags or live case data in test fixtures.
 
 ## Main Invariants
 
@@ -32,10 +32,15 @@ The local data store is separate from this source tree and defaults to `%LOCALAP
 ## Test
 
 ```powershell
-python -m pip install -r requirements-dev.txt
-python -B -X utf8 -m pytest -q -p no:cacheprovider tests
-python -B scripts/styleforge.py --version
-python -B scripts/styleforge.py --help
+$projectRoot = 'D:\AI\codex\styleforge'
+$python = Join-Path $projectRoot '.venv\Scripts\python.exe'
+$env:TEMP = Join-Path $projectRoot '.test-tmp'
+$env:TMP = $env:TEMP
+$env:TMPDIR = $env:TEMP
+New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
+& $python -B -X utf8 -m pytest -q -p no:cacheprovider (Join-Path $projectRoot 'tests')
+& $python -B (Join-Path $projectRoot 'scripts\styleforge.py') --version
+& $python -B (Join-Path $projectRoot 'scripts\styleforge.py') --help
 ```
 
 The suite uses per-test temporary stores, labelled synthetic sample files and a loopback-only HTML page for real Playwright screenshot capture. It never executes a CTF EXP against a live target. If Playwright's Chromium is unavailable, the screenshot integration test reports a skip; install the browser with `python -m playwright install chromium` before treating browser capture as verified.

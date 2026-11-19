@@ -18,7 +18,7 @@ from sf_core import Context, VERSION, copy_original, file_hash, load_events, now
 def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", action="version", version="StyleForge " + VERSION)
-    parser.add_argument("--store", help="Owner-isolated data root; default: LOCALAPPDATA/StyleForge")
+    parser.add_argument("--store", help="Owner-isolated data root; default: D:/AI/codex/StyleForgeData on Windows")
     parser.add_argument("--user", help="Data owner ID, independent of sample author ID")
     parser.add_argument("--test-store", action="store_true", help="Create/use a clearly marked synthetic-fixture store")
     sub = parser.add_subparsers(dest="action", required=True)
@@ -203,6 +203,10 @@ def dispatch(ctx, args):
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure:
+            reconfigure(encoding="utf-8")
     args = arguments()
     try:
         ctx = None if args.action == "bundle-check" else Context(args.store, args.user, args.test_store)

@@ -8,6 +8,9 @@ dist/
 *.egg-info/
 .venv/
 venv/
+.test-tmp/
+.pip-cache/
+.playwright-browsers/
 .env
 .env.*
 !.env.example

@@ -17,6 +17,7 @@ import zipfile
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+TEST_TMP_ROOT = ROOT / ".test-tmp"
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import casebook
@@ -29,7 +30,14 @@ import style_profiles
 
 class StyleForgeAuditTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="styleforge-fixture-")
+        TEST_TMP_ROOT.mkdir(parents=True, exist_ok=True)
+        self.previous_tempdir = tempfile.tempdir
+        self.previous_temp_env = {key: os.environ.get(key)
+                                  for key in ("TEMP", "TMP", "TMPDIR", "PLAYWRIGHT_BROWSERS_PATH")}
+        for key in self.previous_temp_env:
+            os.environ[key] = str(TEST_TMP_ROOT)
+        tempfile.tempdir = str(TEST_TMP_ROOT)
+        self.temp = tempfile.TemporaryDirectory(prefix="styleforge-fixture-", dir=TEST_TMP_ROOT)
         self.root = Path(self.temp.name)
         self.ctx = sf_core.Context(self.root / "store", "audit-user", True)
         self.fixture = self.root / "fixtures"
@@ -39,6 +47,16 @@ class StyleForgeAuditTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+        for key, value in self.previous_temp_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        tempfile.tempdir = self.previous_tempdir
+        try:
+            TEST_TMP_ROOT.rmdir()
+        except OSError:
+            pass
 
     def write(self, name, text):
         path = self.fixture / name
@@ -55,10 +73,10 @@ class StyleForgeAuditTests(unittest.TestCase):
     def article(self, name="article", body="The replay was inspected."):
         return self.write(name + ".md", "# Fixture article\n\nReplay was checked locally.\n\n" + body + "\n")
 
-    def run_cli(self, *args):
+    def run_cli(self, *args, io_encoding="utf-8"):
         command = [sys.executable, "-B", "-X", "utf8", str(ROOT / "scripts/styleforge.py"),
                    "--store", str(self.ctx.root), "--user", self.ctx.user, "--test-store", *map(str, args)]
-        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTHONUTF8="1", PYTHONIOENCODING=io_encoding)
         return subprocess.run(command, capture_output=True, timeout=15, env=env)
 
     def run_events(self, case_id):
@@ -115,6 +133,61 @@ class StyleForgeAuditTests(unittest.TestCase):
                                "--result-pattern", r"FLAG\{[A-Z]+\}")
         self.assertEqual(process.returncode, 0, process.stderr.decode("utf-8", errors="replace"))
         self.assertEqual(json.loads(process.stdout)["status"], "passed")
+
+    def test_cli_json_output_is_utf8_when_the_console_code_page_cannot_encode_it(self):
+        self.make_case("unicode-output")
+        message = "Windows 编码回归 🧪"
+        process = self.run_cli("record", "--case", "unicode-output", "--kind", "note", "--text", message,
+                               io_encoding="gbk")
+        self.assertEqual(process.returncode, 0, process.stderr.decode("utf-8", errors="replace"))
+        self.assertEqual(json.loads(process.stdout.decode("utf-8"))["text"], message)
+
+    @unittest.skipUnless(os.name == "nt", "Windows drive constraint")
+    def test_windows_store_rejects_a_c_drive_path_before_creating_it(self):
+        path = Path("C:/StyleForge-reject-" + self.root.name)
+        with self.assertRaisesRegex(ValueError, "stored on D:"):
+            sf_core.Context(path, "fixture-user", True)
+        self.assertFalse(path.exists())
+
+    @unittest.skipUnless(os.name == "nt", "Windows drive constraint")
+    def test_windows_default_store_is_on_d_drive(self):
+        with patch.dict(os.environ):
+            os.environ.pop("STYLEFORGE_DATA_HOME", None)
+            self.assertEqual(sf_core.default_store_path(), Path("D:/AI/codex/StyleForgeData"))
+
+    @unittest.skipUnless(os.name == "nt", "Windows drive constraint")
+    def test_windows_default_browser_cache_is_on_d_drive(self):
+        with patch.dict(os.environ):
+            os.environ.pop("STYLEFORGE_BROWSERS_HOME", None)
+            self.assertEqual(sf_core.default_browser_path(),
+                             Path("D:/AI/codex/StyleForgeData/playwright-browsers"))
+
+    def test_window_capture_rejects_minimized_or_offscreen_targets_with_diagnostics(self):
+        desktop = (0, 0, 1920, 1080)
+        candidate = {"handle": 1, "title": "Visual Studio Code", "visible": True, "minimized": True,
+                     "rectangle": (20, 20, 1000, 800)}
+        with self.assertRaisesRegex(RuntimeError, "minimized=True"):
+            evidence_capture._select_capture_window([candidate], "Visual Studio Code", desktop)
+
+        candidate.update(minimized=False, rectangle=(-1800, 20, -400, 800))
+        with self.assertRaisesRegex(RuntimeError, "on_screen=False"):
+            evidence_capture._select_capture_window([candidate], "Visual Studio Code", desktop)
+
+        candidate.update(rectangle=(20, 20, 1000, 800))
+        self.assertEqual(evidence_capture._select_capture_window([candidate], "Visual Studio Code", desktop),
+                         candidate)
+
+    def test_window_capture_does_not_claim_pixels_when_focus_was_not_acquired(self):
+        class FakeUser32:
+            def SetForegroundWindow(self, _handle):
+                return True
+
+            def GetForegroundWindow(self):
+                return 99
+
+        with patch("evidence_capture.time.sleep"):
+            with self.assertRaisesRegex(RuntimeError, "did not become foreground"):
+                evidence_capture._activate_foreground_window(FakeUser32(), 42)
 
     def test_cli_does_not_report_an_exp_without_result_check_as_success(self):
         source = self.write("cli-unverified.py", "print('program ran')\n")

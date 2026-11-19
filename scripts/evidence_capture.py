@@ -57,6 +57,41 @@ def probe(host_tools=()):
     }
 
 
+def _rect_within(rectangle, desktop):
+    if not rectangle or len(rectangle) != 4:
+        return False
+    left, top, right, bottom = map(int, rectangle)
+    desktop_left, desktop_top, desktop_right, desktop_bottom = map(int, desktop)
+    return (right - left > 10 and bottom - top > 10 and left >= desktop_left and top >= desktop_top
+            and right <= desktop_right and bottom <= desktop_bottom)
+
+
+def _select_capture_window(candidates, requested_title, desktop):
+    matching = [candidate for candidate in candidates
+                if requested_title.casefold() in candidate["title"].casefold()]
+    eligible = [candidate for candidate in matching
+                if candidate["visible"] and not candidate["minimized"]
+                and _rect_within(candidate["rectangle"], desktop)]
+    if len(eligible) != 1:
+        details = [
+            f"{item['title']!r}(visible={item['visible']}, minimized={item['minimized']}, "
+            f"on_screen={_rect_within(item['rectangle'], desktop)}, rectangle={item['rectangle']})"
+            for item in matching
+        ] or ["no matching top-level window found"]
+        raise RuntimeError(
+            "Window capture requires exactly one visible, non-minimized, fully on-screen match; "
+            f"eligible={len(eligible)}; candidates={'; '.join(details)}"
+        )
+    return eligible[0]
+
+
+def _activate_foreground_window(user32, handle):
+    user32.SetForegroundWindow(handle)
+    time.sleep(0.35)
+    if user32.GetForegroundWindow() != handle:
+        raise RuntimeError("Target window did not become foreground; screenshot was not captured")
+
+
 def manifest(ctx, case_id):
     result = read_json(ctx.case_dir(case_id) / "evidence" / "manifest.json")
     if result["owner_user"] != ctx.user or result["case_id"] != case_id:
@@ -132,28 +167,52 @@ def capture(ctx, case_id, step_id, name, caption, kind="browser", url=None, wind
             from ctypes import wintypes
             from PIL import ImageGrab
             user32 = ctypes.windll.user32
-            matches = []
+            user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+            user32.GetWindowTextW.restype = ctypes.c_int
+            user32.IsWindowVisible.argtypes = [wintypes.HWND]
+            user32.IsWindowVisible.restype = wintypes.BOOL
+            user32.IsIconic.argtypes = [wintypes.HWND]
+            user32.IsIconic.restype = wintypes.BOOL
+            user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+            user32.GetWindowRect.restype = wintypes.BOOL
+            user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+            user32.SetForegroundWindow.restype = wintypes.BOOL
+            user32.GetForegroundWindow.restype = wintypes.HWND
+            user32.GetSystemMetrics.argtypes = [ctypes.c_int]
+            user32.GetSystemMetrics.restype = ctypes.c_int
+            virtual_left = user32.GetSystemMetrics(76)
+            virtual_top = user32.GetSystemMetrics(77)
+            virtual_width = user32.GetSystemMetrics(78)
+            virtual_height = user32.GetSystemMetrics(79)
+            desktop = (virtual_left, virtual_top, virtual_left + virtual_width, virtual_top + virtual_height)
+            if virtual_width <= 0 or virtual_height <= 0:
+                raise RuntimeError("Windows did not report usable virtual desktop bounds")
+            candidates = []
             callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
             @callback_type
             def enumerate_window(handle, _):
                 buffer = ctypes.create_unicode_buffer(1024)
                 user32.GetWindowTextW(handle, buffer, 1024)
-                if window_title.casefold() in buffer.value.casefold() and user32.IsWindowVisible(handle) and not user32.IsIconic(handle):
+                if window_title.casefold() in buffer.value.casefold():
                     rectangle = wintypes.RECT()
-                    user32.GetWindowRect(handle, ctypes.byref(rectangle))
-                    if rectangle.right - rectangle.left > 10 and rectangle.bottom - rectangle.top > 10:
-                        matches.append((handle, buffer.value, (rectangle.left, rectangle.top, rectangle.right, rectangle.bottom)))
+                    has_rectangle = user32.GetWindowRect(handle, ctypes.byref(rectangle))
+                    rect = ((rectangle.left, rectangle.top, rectangle.right, rectangle.bottom)
+                            if has_rectangle else None)
+                    candidates.append({"handle": handle, "title": buffer.value,
+                                       "visible": bool(user32.IsWindowVisible(handle)),
+                                       "minimized": bool(user32.IsIconic(handle)), "rectangle": rect})
                 return True
 
             user32.EnumWindows(enumerate_window, 0)
-            if len(matches) != 1:
-                raise RuntimeError(f"Window title must match exactly one visible non-minimized window; matches={len(matches)}")
-            handle, title, rectangle = matches[0]
-            user32.SetForegroundWindow(handle)
-            time.sleep(0.35)
+            selected = _select_capture_window(candidates, window_title, desktop)
+            handle = selected["handle"]
+            title = selected["title"]
+            rectangle = selected["rectangle"]
+            _activate_foreground_window(user32, handle)
             ImageGrab.grab(bbox=rectangle, all_screens=True).save(temporary)
-            operation.update(actual_window_title=title, rectangle=rectangle, provider="Pillow ImageGrab native screen pixels")
+            operation.update(actual_window_title=title, rectangle=rectangle, desktop_bounds=desktop,
+                             provider="Pillow ImageGrab native screen pixels")
         return add(ctx, case_id, step_id, kind, source, operation, caption, temporary, capture_verified=True)
     except Exception as error:
         return add(ctx, case_id, step_id, kind, source, operation, caption, error=str(error))

@@ -10,14 +10,14 @@ See [INSTALL.md](INSTALL.md) for Python requirements, Skill discovery, browser c
 
 ## Typical Flow
 
-From the StyleForge directory, use `python scripts/styleforge.py`. The owner-isolated store defaults to `%LOCALAPPDATA%\StyleForge`; the current OS account is the default owner.
+From `D:\AI\codex\styleforge`, activate the D-drive environment with `. .\.venv\Scripts\Activate.ps1`, then use `python scripts/styleforge.py`. On Windows, the owner-isolated store defaults to `D:\AI\codex\StyleForgeData`; the current OS account is the default owner. Set `STYLEFORGE_DATA_HOME` or `--store` only to another D: path.
 
 ### Learn A Style
 
 ```powershell
 python scripts/styleforge.py profile-learn `
   --profile my-style --author my-writing --kind historical_user `
-  --sample 'C:\CTF\my-writeups' --note 'User-selected historical WP'
+  --sample 'D:\CTF\my-writeups' --note 'User-selected historical WP'
 python scripts/styleforge.py profile-show --profile my-style
 ```
 
@@ -50,7 +50,7 @@ Initialize case inputs as immutable local copies. `solve` records a first-time s
 python scripts/styleforge.py case-init `
   --case crypto-replay --title 'Challenge title' --category Crypto `
   --profile my-style --style-mode write --record-mode replay `
-  --input 'C:\CTF\challenge'
+  --input 'D:\CTF\challenge'
 python scripts/styleforge.py case-status --case crypto-replay
 python scripts/styleforge.py record --case crypto-replay --kind observation `
   --text 'The supplied file contains a fixed-width encrypted value.'
@@ -60,7 +60,7 @@ Record and run an EXP with a current input snapshot and an explicit output check
 
 ```powershell
 python scripts/styleforge.py exp-check --case crypto-replay `
-  --file 'C:\CTF\challenge\solve.py' --run `
+  --file 'D:\CTF\challenge\solve.py' --run `
   --result-pattern 'FLAG\{[A-Za-z0-9_]+\}'
 ```
 
@@ -87,7 +87,7 @@ python scripts/styleforge.py prepare --case crypto-replay
 python scripts/styleforge.py publish --case crypto-replay `
   --source .\draft.md --attachment .\solve.py
 python scripts/styleforge.py check --case crypto-replay `
-  --article '%LOCALAPPDATA%\StyleForge\users\YG\cases\crypto-replay\outputs\<revision>\writeup.md'
+  --article 'D:\AI\codex\StyleForgeData\users\local-user\cases\crypto-replay\outputs\<revision>\writeup.md'
 python scripts/styleforge.py bundle-check --path '<candidate bundle directory>'
 ```
 
@@ -97,7 +97,7 @@ Only `approve` writes to the formal `approved/` directory. It requires a user-ge
 
 ```json
 {
-  "owner_user": "YG",
+  "owner_user": "local-user",
   "decision": "approved",
   "article_sha256": "<SHA-256 of the exact current writeup.md>",
   "confirmed_by": "user",
@@ -117,6 +117,7 @@ Pass the user's receipt to `approve --receipt`; an edit after confirmation chang
 - Identify replay output as replay. A historical flag requires an imported and hash-checked historical source and explicit in-article historical attribution.
 - `validation.json` checks artifacts and provenance, not exploit correctness. External HTTP links are syntax-checked but not fetched. The user confirms the exact revision before it enters `approved/`.
 - `--test-store` uses a fixture-only data store and must never be pointed at personal case data. Keep generated validation fixtures separate from actual challenge records.
+- CLI JSON output on Windows uses UTF-8 regardless of the active console code page.
 
 ## CLI Map
 
